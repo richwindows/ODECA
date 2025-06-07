@@ -15,12 +15,7 @@
 
 .App-header {
   background-color: #282c34;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-size: calc(10px + 2vmin);
+  padding: 20px;
   color: white;
 }
 
@@ -36,3 +31,110 @@
     transform: rotate(360deg);
   }
 }
+
+.upload-section {
+  margin: 20px 0;
+  padding: 20px;
+  border: 2px dashed #61dafb;
+  border-radius: 10px;
+  background-color: rgba(97, 218, 251, 0.1);
+}
+
+.data-display {
+  margin-top: 30px;
+  text-align: left;
+}
+
+.table-container {
+  max-height: 400px;
+  overflow: auto;
+  border: 1px solid #61dafb;
+  border-radius: 5px;
+  margin-top: 10px;
+}
+
+.excel-table {
+  width: 100%;
+  border-collapse: collapse;
+  background-color: white;
+  color: black;
+}
+
+.excel-table td {
+  border: 1px solid #ddd;
+  padding: 8px;
+  text-align: left;
+  min-width: 100px;
+}
+
+.excel-table tr:nth-child(even) {
+  background-color: #f2f2f2;
+}
+
+.excel-table tr:hover {
+  background-color: #e8f4f8;
+}
+
+button {
+  background-color: #61dafb;
+  color: #282c34;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+button:hover {
+  background-color: #4fa8c5;
+}
+
+button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
+.view-switcher {
+  margin: 20px 0;
+}
+
+input[type="file"] {
+  padding: 10px;
+  border: 1px solid #61dafb;
+  border-radius: 5px;
+  background-color: white;
+  color: black;
+}
+
+.App-link {
+  color: #61dafb;
+}
+
+@keyframes App-logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+main {
+  padding: 20px;
+}
+
+table {
+  margin: 20px auto;
+  border-collapse: collapse;
+  width: 80%;
+}
+
+th, td {
+  border: 1px solid #ddd;
+  padding: 8px;
+}
+
+th {
+  background-color: #f2f2f2;
+}
+
