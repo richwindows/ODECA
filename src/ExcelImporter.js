@@ -4,7 +4,7 @@ import * as XLSX from 'xlsx';
 const PROCESSED_VIEW_HEADERS = [
     'Order No', 'Type', 'Material Code', 'Material Position', 'Color', '(W/H)', 
     'Length', 'Angles', 'Qty', 'Cart No', 'Material Length', 'Cutting ID', 
-    'Pieces ID', 'Window Number', 'Grid', 'LOCK', 'Nailing Fin'
+    'Pieces ID', 'Window Number', 'LOCK'
 ];
 
 const DISPLAY_HEADERS = [
@@ -229,179 +229,62 @@ function ExcelImporter() {
             console.table(sampleData);
         }
 
-        // 3. 优化算法处理 - 只处理qty为1的项目
-        console.log('\n=== 开始优化算法处理（仅Qty=1项目）===');
-        
-        // 筛选出qty为1的项目
-        const qtyOneItems = processedItems.filter(item => item['Qty'] === 1);
-        console.log(`Qty=1的项目总数: ${qtyOneItems.length}`);
-        
+        // 3. 优化算法处理 - 不区分qty，全部统一处理（贪心法）
+        console.log('\n=== 开始优化算法处理（所有项目统一处理）===');
         // 按材料代码和颜色分组
         const materialColorGroups = new Map();
-        qtyOneItems.forEach(item => {
+        processedItems.forEach(item => {
             const groupKey = `${item['Material Code']}-${item['Color']}`;
             if (!materialColorGroups.has(groupKey)) {
                 materialColorGroups.set(groupKey, []);
             }
             materialColorGroups.get(groupKey).push(item);
         });
-        
         console.log(`材料颜色分组数: ${materialColorGroups.size}`);
-        
-        // 在文件开头添加优化算法函数
-        function findBestCombination(items, targetLength = 210) {
-        // 按长度降序排序
-        const sortedItems = [...items].sort((a, b) => parseFloat(b.Length) - parseFloat(a.Length));
-        
-        function generateCombinations(items, currentCombination = [], startIndex = 0) {
-        const combinations = [];
-        const currentLength = currentCombination.reduce((sum, item) => sum + parseFloat(item.Length), 0);
-        
-        // 如果当前组合已经接近或超过目标长度，添加到结果中
-        if (currentLength <= targetLength && currentCombination.length > 0) {
-        combinations.push([...currentCombination]);
-        }
-        
-        // 如果已经超过目标长度，停止继续添加
-        if (currentLength >= targetLength) {
-        return combinations;
-        }
-        
-        // 尝试添加更多项目
-        for (let i = startIndex; i < items.length; i++) {
-        const newLength = currentLength + parseFloat(items[i].Length);
-        if (newLength <= targetLength) {
-        combinations.push(...generateCombinations(
-        items, 
-        [...currentCombination, items[i]], 
-        i + 1
-        ));
-        }
-        }
-        
-        return combinations;
-        }
-        
-        const allCombinations = generateCombinations(sortedItems);
-        
-        if (allCombinations.length === 0) {
-        return null;
-        }
-        
-        // 选择最佳组合：优先选择总长度最接近目标长度的，其次选择项目数量最多的
-        const bestCombination = allCombinations.reduce((best, current) => {
-        const bestLength = best.reduce((sum, item) => sum + parseFloat(item.Length), 0);
-        const currentLength = current.reduce((sum, item) => sum + parseFloat(item.Length), 0);
-        const bestWaste = targetLength - bestLength;
-        const currentWaste = targetLength - currentLength;
-        
-        // 优先选择废料更少的组合
-        if (currentWaste < bestWaste) {
-        return current;
-        } else if (currentWaste === bestWaste) {
-        // 废料相同时，选择项目数量更多的
-        return current.length > best.length ? current : best;
-        }
-        return best;
-        });
-        
-        return bestCombination;
-        }
-
-        // 为每个分组应用优化算法
         materialColorGroups.forEach((items, groupKey) => {
-            console.log(`\n处理分组: ${groupKey}, 项目数: ${items.length}`);
-            
-            // 创建项目副本用于处理
-            let remainingItems = [...items];
-            let piecesIdCounter = 1; // 每个分组重新开始计数
-            let cuttingGroupCounter = 1; // 切割组合计数器
-            let cuttingResults = [];
-            
+            let remainingItems = [...items].sort((a, b) => parseFloat(b.Length) - parseFloat(a.Length));
+            let cuttingGroupCounter = 1;
             while (remainingItems.length > 0) {
-                // 寻找最佳组合
-                const bestCombination = findBestCombination(remainingItems, 210);
-                
-                if (bestCombination && bestCombination.length > 0) {
-                    // 计算组合的总长度和废料
-                    const totalLength = bestCombination.reduce((sum, item) => sum + parseFloat(item.Length), 0);
-                    const waste = 210 - totalLength;
-                    
-                    console.log(`找到最佳组合: ${bestCombination.length}个项目, 总长度: ${totalLength}, 废料: ${waste}`);
-                    
-                    // 按长度从小到大排序组合中的项目
-                    const sortedCombination = [...bestCombination].sort((a, b) => parseFloat(a.Length) - parseFloat(b.Length));
-                    
-                    // 按长度分组并统计相同长度的数量
+                let currentGroup = [];
+                let currentLength = 0;
+                for (let i = 0; i < remainingItems.length; i++) {
+                    const itemLength = parseFloat(remainingItems[i].Length);
+                    if (currentLength + itemLength <= 210) {
+                        currentGroup.push(remainingItems[i]);
+                        currentLength += itemLength;
+                    }
+                }
+                if (currentGroup.length === 0) {
+                    // 单独处理
+                    const singleItem = remainingItems.shift();
+                    singleItem['Cutting Group'] = `${groupKey}-G${cuttingGroupCounter}`;
+                    singleItem['Pieces ID'] = 1;
+                    singleItem['Cutting ID'] = 1;
+                    cuttingGroupCounter++;
+                } else {
+                    // 先按长度从小到大排序
+                    const sortedGroup = [...currentGroup].sort((a, b) => parseFloat(a.Length) - parseFloat(b.Length));
+                    // 统计同尺寸数量
                     const lengthGroups = {};
-                    sortedCombination.forEach(item => {
-                        const length = item.Length;
-                        if (!lengthGroups[length]) {
-                            lengthGroups[length] = [];
-                        }
-                        lengthGroups[length].push(item);
+                    sortedGroup.forEach(item => {
+                        const len = item.Length;
+                        if (!lengthGroups[len]) lengthGroups[len] = [];
+                        lengthGroups[len].push(item);
                     });
-                    
-                    // 为合并后的项目重新分配Pieces ID（在同一切割组内从1开始计数）
-                    let combinationItems = [];
-                    let orderCounter = 1;
-                    
-                    Object.keys(lengthGroups)
-                        .sort((a, b) => parseFloat(a) - parseFloat(b)) // 按长度排序
-                        .forEach(length => {
-                            const itemsOfSameLength = lengthGroups[length];
-                            const count = itemsOfSameLength.length;
-                            
-                            // 创建合并后的项目
-                            const mergedItem = { ...itemsOfSameLength[0] }; // 复制第一个项目的属性
-                            mergedItem['Pieces ID'] = piecesIdCounter++;
-                            mergedItem['Cutting ID'] = count; // 设置Cutting ID为相同尺寸的个数
-                            mergedItem['Cutting Group'] = `${groupKey}-G${cuttingGroupCounter}`;
-                            mergedItem['Cutting Order'] = orderCounter++;
-                            mergedItem['Group Total Length'] = totalLength;
-                            mergedItem['Group Waste'] = waste;
-                            
-                            // 合并窗号
-                            const windowNumbers = itemsOfSameLength.map(item => item['Window Number']).filter(num => num);
-                            if (windowNumbers.length > 0) {
-                                mergedItem['Window Number'] = windowNumbers.join(',');
-                            }
-                            
-                            combinationItems.push(mergedItem);
-                            
-                            // 更新原始数据中对应的项目
-                            itemsOfSameLength.forEach(originalItem => {
-                                const originalIndex = processedItems.findIndex(item => 
-                                    item['Cart No'] === originalItem['Cart No'] && 
-                                    item['Length'] === originalItem['Length'] &&
-                                    item['Window Number'] === originalItem['Window Number']
-                                );
-                                if (originalIndex !== -1) {
-                                    processedItems[originalIndex]['Pieces ID'] = mergedItem['Pieces ID'];
-                                    processedItems[originalIndex]['Cutting ID'] = mergedItem['Cutting ID'];
-                                    processedItems[originalIndex]['Cutting Group'] = mergedItem['Cutting Group'];
-                                    processedItems[originalIndex]['Cutting Order'] = mergedItem['Cutting Order'];
-                                    processedItems[originalIndex]['Group Total Length'] = mergedItem['Group Total Length'];
-                                    processedItems[originalIndex]['Group Waste'] = mergedItem['Group Waste'];
-                                    processedItems[originalIndex]['Window Number'] = mergedItem['Window Number'];
-                                }
-                            });
+                    // 分配编号
+                    let piecesId = 1;
+                    Object.keys(lengthGroups).sort((a, b) => parseFloat(a) - parseFloat(b)).forEach(len => {
+                        const group = lengthGroups[len];
+                        group.forEach(item => {
+                            item['Cutting Group'] = `${groupKey}-G${cuttingGroupCounter}`;
+                            item['Pieces ID'] = piecesId++;
+                            item['Cutting ID'] = group.length;
                         });
-                    
-                    cuttingResults.push({
-                        groupId: `${groupKey}-G${cuttingGroupCounter}`,
-                        combination: combinationItems, // 使用合并后的项目
-                        totalLength: totalLength,
-                        waste: waste,
-                        piecesCount: combinationItems.length
                     });
-                    
-                    cuttingGroupCounter++; // 增加切割组计数器
-                    
-                    // 从剩余项目中移除已处理的项目（使用原始的bestCombination进行匹配）
-                    bestCombination.forEach(usedItem => {
-                        const index = remainingItems.findIndex(item => 
-                            item['Cart No'] === usedItem['Cart No'] && 
+                    // 从剩余项目中移除已分组
+                    currentGroup.forEach(usedItem => {
+                        const index = remainingItems.findIndex(item =>
+                            item['Cart No'] === usedItem['Cart No'] &&
                             item['Length'] === usedItem['Length'] &&
                             item['Window Number'] === usedItem['Window Number']
                         );
@@ -409,196 +292,72 @@ function ExcelImporter() {
                             remainingItems.splice(index, 1);
                         }
                     });
-                } else {
-                    // 如果找不到合适的组合，单独处理第一个项目
-                    const singleItem = remainingItems.shift();
-                    singleItem['Pieces ID'] = piecesIdCounter++;
-                    singleItem['Cutting ID'] = undefined;
-                    singleItem['Cutting Group'] = `${groupKey}-G${cuttingGroupCounter}`;
-                    singleItem['Cutting Order'] = 1;
-                    singleItem['Group Total Length'] = parseFloat(singleItem.Length);
-                    singleItem['Group Waste'] = 210 - parseFloat(singleItem.Length);
-                    
-                    const waste = 210 - parseFloat(singleItem.Length);
-                    console.log(`单独处理项目: 长度${singleItem.Length}, 废料: ${waste}`);
-                    
-                    cuttingResults.push({
-                        groupId: `${groupKey}-G${cuttingGroupCounter}`,
-                        combination: [singleItem],
-                        totalLength: parseFloat(singleItem.Length),
-                        waste: waste,
-                        piecesCount: 1
-                    });
-                    
                     cuttingGroupCounter++;
                 }
             }
-            
-            // 显示该分组的优化结果统计
-            const totalWaste = cuttingResults.reduce((sum, result) => sum + result.waste, 0);
-            const totalCuts = cuttingResults.length;
-            const averageWaste = totalWaste / totalCuts;
-            
-            console.log(`分组 ${groupKey} 优化完成:`);
-            console.log(`- 总切割数: ${totalCuts}`);
-            console.log(`- 总废料: ${totalWaste.toFixed(2)}`);
-            console.log(`- 平均废料: ${averageWaste.toFixed(2)}`);
-            console.log(`- 处理项目数: ${items.length}`);
-            
-            // 按切割组显示详细信息
-            console.log(`\n=== ${groupKey} 切割组合详情 ===`);
-            cuttingResults.forEach((result, index) => {
-                console.log(`\n切割组 ${result.groupId}:`);
-                console.log(`- 项目数: ${result.piecesCount}`);
-                console.log(`- 总长度: ${result.totalLength}`);
-                console.log(`- 废料: ${result.waste.toFixed(2)}`);
-                console.log(`- 切割项目详情:`);
-                
-                const groupItems = result.combination.map(item => ({
-                    'Pieces ID': item['Pieces ID'],
-                    '长度': item['Length'],
-                    '切割顺序': item['Cutting Order'],
-                    '窗号': item['Window Number']
-                }));
-                console.table(groupItems);
-            });
         });
         
-        // 显示优化后的统计信息
-        const optimizedQtyOneItems = processedItems.filter(item => item['Qty'] === 1 && item['Pieces ID']);
-        console.log(`\n=== 优化完成统计 ===`);
-        console.log(`已优化的Qty=1项目数: ${optimizedQtyOneItems.length}`);
-        console.log(`未优化的Qty=2项目数: ${processedItems.filter(item => item['Qty'] === 2).length}`);
-        
-        // 显示优化后的数据示例
-        if (optimizedQtyOneItems.length > 0) {
-            console.log('\n=== 优化后数据示例（前10条Qty=1项目）===');
-            const optimizedSample = optimizedQtyOneItems.slice(0, 10).map((item, index) => ({
-                '序号': index + 1,
-                '材料代码': item['Material Code'],
-                '颜色': item['Color'],
-                '长度': item['Length'],
-                'Qty': item['Qty'],
-                'Cart No': item['Cart No'],
-                'Pieces ID': item['Pieces ID'],
-                'Cutting ID': item['Cutting ID'] || '空白',
-                '窗号': item['Window Number']
-            }));
-            console.table(optimizedSample);
-        }
-
         // 4. 对处理后的数据进行最终排序，确保同一切割组的项目连续显示
         console.log('\n=== 开始最终数据排序 ===');
-        
-        // 将所有处理后的数据按切割组和顺序排序
+        // 将所有处理后的数据按切割组和pieces id正序排序
         const finalSortedData = processedItems.sort((a, b) => {
-            // 首先按材料代码排序
-            const materialA = a['Material Code'] || '';
-            const materialB = b['Material Code'] || '';
-            if (materialA !== materialB) {
-                return materialA.localeCompare(materialB);
-            }
-            
-            // 然后按颜色排序
-            const colorA = a['Color'] || '';
-            const colorB = b['Color'] || '';
-            if (colorA !== colorB) {
-                return colorA.localeCompare(colorB);
-            }
-            
-            // 接着按数量类型排序（Qty=1的排在前面）
-            const qtyA = a['Qty'] || 0;
-            const qtyB = b['Qty'] || 0;
-            if (qtyA !== qtyB) {
-                return qtyA - qtyB;
-            }
-            
-            // 然后按切割组排序（有切割组的排在前面）
             const groupA = a['Cutting Group'] || '';
             const groupB = b['Cutting Group'] || '';
-            
-            // 如果一个有切割组，一个没有，有切割组的排在前面
-            if (groupA && !groupB) return -1;
-            if (!groupA && groupB) return 1;
-            
-            // 如果都有切割组，按切割组名称排序
-            if (groupA && groupB && groupA !== groupB) {
+            if (groupA !== groupB) {
                 return groupA.localeCompare(groupB);
             }
-            
-            // 同一切割组内按切割顺序排序
-            if (groupA && groupB && groupA === groupB) {
-                const orderA = a['Cutting Order'] || 0;
-                const orderB = b['Cutting Order'] || 0;
-                return orderA - orderB;
-            }
-            
-            // 其他情况按Cart No排序
-            const cartA = a['Cart No'] || 0;
-            const cartB = b['Cart No'] || 0;
-            return cartA - cartB;
+            // 同组内按pieces id正序
+            return (a['Pieces ID'] || 0) - (b['Pieces ID'] || 0);
         });
-        
-        // 显示排序后的数据示例
-        console.log('\n=== 最终排序后数据示例 ===');
-        const sortedSample = finalSortedData.filter(item => item['Qty'] === 1 && item['Cutting Group']).slice(0, 20);
-        if (sortedSample.length > 0) {
-            console.table(sortedSample.map((item, index) => ({
-                '序号': index + 1,
-                '材料代码': item['Material Code'],
-                '颜色': item['Color'],
-                '长度': item['Length'],
-                'Qty': item['Qty'],
-                'Pieces ID': item['Pieces ID'],
-                '切割组': item['Cutting Group'],
-                '切割顺序': item['Cutting Order'],
-                '窗号': item['Window Number']
-            })));
-        }
-        
-        // 统计切割组信息
-        const cuttingGroups = new Map();
+
+        // 合并同组同尺寸，只保留一行，pieces id重新分配，qty等字段不变
+        const mergedData = [];
+        let currentGroup = '';
+        let groupRows = [];
         finalSortedData.forEach(item => {
-            if (item['Cutting Group']) {
-                const group = item['Cutting Group'];
-                if (!cuttingGroups.has(group)) {
-                    cuttingGroups.set(group, []);
+            if (item['Cutting Group'] !== currentGroup) {
+                // 新组，处理上一组
+                if (groupRows.length > 0) {
+                    const lengthMap = {};
+                    groupRows.forEach(row => {
+                        const len = row['Length'];
+                        if (!lengthMap[len]) lengthMap[len] = row;
+                    });
+                    let pid = 1;
+                    Object.values(lengthMap).forEach(row => {
+                        row['Pieces ID'] = pid++;
+                        mergedData.push(row);
+                    });
                 }
-                cuttingGroups.get(group).push(item);
+                groupRows = [];
+                currentGroup = item['Cutting Group'];
             }
+            groupRows.push(item);
         });
-        
-        console.log(`\n=== 切割组统计 ===`);
-        console.log(`总切割组数: ${cuttingGroups.size}`);
-        
-        // 显示每个切割组的详细信息
-        let groupIndex = 1;
-        cuttingGroups.forEach((items, groupId) => {
-            const totalLength = items.reduce((sum, item) => sum + parseFloat(item.Length), 0);
-            const waste = 210 - totalLength;
-            console.log(`\n切割组 ${groupIndex}: ${groupId}`);
-            console.log(`- 项目数: ${items.length}`);
-            console.log(`- 总长度: ${totalLength}`);
-            console.log(`- 废料: ${waste.toFixed(2)}`);
-            console.log(`- 项目详情:`);
-            
-            const groupDetails = items.map(item => ({
-                'Pieces ID': item['Pieces ID'],
-                '长度': item['Length'],
-                '切割顺序': item['Cutting Order'],
-                '窗号': item['Window Number']
-            }));
-            console.table(groupDetails);
-            groupIndex++;
-            
-            if (groupIndex > 5) { // 只显示前5个组的详细信息
-                console.log('... (更多切割组)');
-                return;
-            }
+        // 处理最后一组
+        if (groupRows.length > 0) {
+            const lengthMap = {};
+            groupRows.forEach(row => {
+                const len = row['Length'];
+                if (!lengthMap[len]) lengthMap[len] = row;
+            });
+            let pid = 1;
+            Object.values(lengthMap).forEach(row => {
+                row['Pieces ID'] = pid++;
+                mergedData.push(row);
+            });
+        }
+
+        // 用mergedData作为最终导出/展示数据
+        // 重新分配Cart No，从1开始递增
+        mergedData.forEach((row, idx) => {
+            row['Cart No'] = idx + 1;
         });
+
+        // Remove Cutting Group from final data as it is not needed in the output
+        mergedData.forEach(row => delete row['Cutting Group']);
         
-        // 5. 更新状态
-        setProcessedData(finalSortedData);
+        setProcessedData(mergedData);
         setView('processed');
       }
     };
